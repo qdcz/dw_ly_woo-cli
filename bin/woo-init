@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+
+const { Command } = require("commander");
+const https = require("https");
+const fs = require("fs");
+const path = require("path");
+const progress = require("progress");
+const AdmZip = require("adm-zip");
+
+class FolderSync {
+    constructor(sourcePath, targetPath) {
+        this.sourcePath = sourcePath;
+        this.targetPath = targetPath;
+
+        // 创建插件目录
+        fs.mkdirSync(path.join(process.cwd(), "public", "plugin"), {
+            recursive: true,
+        });
+    }
+
+    syncFolders() {
+        this.copyFilesRecursively(this.sourcePath, this.targetPath);
+        console.log("Folder synchronization completed successfully.");
+    }
+
+    copyFilesRecursively(source, target) {
+        const files = fs.readdirSync(source);
+
+        files.forEach((file) => {
+            const sourceFile = path.join(source, file);
+            const targetFile = path.join(target, file);
+
+            if (fs.statSync(sourceFile).isDirectory()) {
+                fs.mkdirSync(targetFile, { recursive: true });
+                this.copyFilesRecursively(sourceFile, targetFile);
+            } else {
+                fs.copyFileSync(sourceFile, targetFile);
+            }
+        });
+    }
+}
+
+class Downloader {
+    constructor(fileUrl, localFilePath) {
+        this.fileUrl = fileUrl;
+        this.localFilePath = localFilePath;
+        this.progressBar = null;
+    }
+
+    download() {
+        // 检查本地是否存在文件，如果存在则删除
+        if (
+            fs.existsSync(this.localFilePath) &&
+            /wooServer/.test(path.basename(this.localFilePath))
+        ) {
+            fs.unlinkSync(this.localFilePath);
+            console.log(
+                `Deleted existing '${path.basename(this.localFilePath)}' file.`
+            );
+        }
+
+        // 写入下载的zip包流
+        const file = fs.createWriteStream(this.localFilePath);
+        const request = https.get(this.fileUrl, (response) => {
+            const totalLength = parseInt(
+                response.headers["content-length"],
+                10
+            );
+            this.progressBar = new progress(
+                "  downloading [:bar] :percent :etas",
+                {
+                    complete: "=",
+                    incomplete: " ",
+                    width: 20,
+                    total: totalLength,
+                }
+            );
+
+            response.on("data", (chunk) => {
+                this.progressBar.tick(chunk.length);
+                file.write(chunk);
+            });
+
+            response.on("end", () => {
+                file.end();
+                this.extractAndDelete();
+            });
+        });
+
+        request.on("error", (err) => {
+            fs.unlinkSync(this.localFilePath);
+            console.error("  Error downloading:", err.message);
+        });
+    }
+
+    extractAndDelete() {
+        console.log("  Download complete. Extracting and deleting ZIP file...");
+
+        // 解压缩 ZIP 文件
+        const zip = new AdmZip(this.localFilePath);
+        zip.extractAllTo(process.cwd(), true); // 解压到当前工作目录下
+        console.log("  ZIP file extracted successfully.");
+
+        // 删除 ZIP 文件
+        fs.unlinkSync(this.localFilePath);
+        console.log("  ZIP file deleted successfully.");
+    }
+}
+
+const sourceFolder = path.join(__dirname, "../", "__public");
+const targetFolder = path.join(process.cwd(), "public");
+const folderSync = new FolderSync(sourceFolder, targetFolder);
+folderSync.syncFolders();
+
+const program = new Command();
+program.option("-s, --server", "generate server code template");
+program.parse(process.argv);
+const pkgs = program.args;
+
+if (!pkgs.length) {
+    console.error("pkgs required");
+    process.exit(1);
+}
+
+console.log();
+
+pkgs.forEach((pkg) => {
+    console.log("  install : %s", pkg);
+    if (pkg === "server") {
+        const fileUrl =
+            "https://cdnforspeed.oss-cn-beijing.aliyuncs.com/install%20pack/woo/wooServer-0.0.4.zip";
+        const localFilePath = path.join(process.cwd(), "wooServer-0.0.4.zip");
+        const downloader = new Downloader(fileUrl, localFilePath);
+        downloader.download();
+    }
+});
+console.log();
