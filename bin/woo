@@ -75,11 +75,6 @@ program
     .version(pkg.version);
 
 program.command("init [name]", "install one or more packages");
-// .command("update", "update installed packages", {
-//     executableFile: "myUpdateSubCommand",
-// })
-// .command("list", "list packages installed", { isDefault: true });
-
 program.parse();
 
 // program

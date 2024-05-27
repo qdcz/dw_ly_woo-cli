@@ -1,0 +1,1 @@
+本地调试 ： node ./bin/woo init server
